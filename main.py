@@ -20,10 +20,6 @@ def get_secret(secret_name):
     response = client.access_secret_version(request={"name": secret_path})
     return response.payload.data.decode("UTF-8")
 
-os.environ['EMAIL'] = get_secret('AirSync_email')
-os.environ['PASSWORD'] = get_secret('AirSync_password')
-os.environ['FLIGHT_DATA'] = get_secret('AirSync_flight_data')
-
 # Google Sheets authentication
 credentials, project = default(scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
 client = gspread.authorize(credentials)
