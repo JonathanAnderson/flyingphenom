@@ -16,5 +16,8 @@ COPY . .
 # Set environment variable for Flask port
 ENV PORT 8080
 
+# Set environment variable for Google Cloud Project ID
+ENV GOOGLE_CLOUD_PROJECT flyingphenom-425519
+
 # Command to run the Flask app
 CMD ["python", "main.py"]
