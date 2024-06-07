@@ -2,7 +2,7 @@ import os
 from flask import Flask, request, jsonify
 from google.cloud import secretmanager
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.auth import default
 import requests
 
 app = Flask(__name__)
@@ -21,9 +21,8 @@ os.environ['PASSWORD'] = get_secret('AirSync_password')
 os.environ['FLIGHT_DATA'] = get_secret('AirSync_flight_data')
 
 # Google Sheets authentication
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name('service_account.json', scope)
-client = gspread.authorize(creds)
+credentials, project = default(scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
+client = gspread.authorize(credentials)
 sheet = client.open_by_key(os.getenv('FLIGHT_DATA')).sheet1
 
 # Endpoint to login and get access token
