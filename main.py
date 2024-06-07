@@ -4,7 +4,6 @@ from google.cloud import secretmanager
 import gspread
 from google.auth import default
 import requests
-from werkzeug.exceptions import HTTPException
 from datetime import datetime
 import json
 
@@ -25,21 +24,14 @@ client = gspread.authorize(credentials)
 sheet = client.open_by_key(os.getenv("FLIGHT_DATA")).sheet1
 
 
-def log_request(request_desc):
-    global log_messages
-    log_entry = {
-        'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'endpoint': request.path,
-        'method': request.method,
-        'data': request_desc
-    }
+def log_request(info):
+    """Log request information, maintaining a maximum of 100 logs."""
     if len(log_messages) >= 100:
         log_messages.pop(0)
-    log_messages.append(log_entry)
+    log_messages.append(info)
 
 
 def get_auth_token():
-    log_request('Attempting to get auth token')
     url = "https://api.air-sync.com/api/v2/user/login"
     payload = {
         "email": os.getenv("EMAIL"),
@@ -65,19 +57,11 @@ def fetch_and_cache_data(endpoint):
     headers = {"Authorization": f"Bearer {auth_token}"}
     response = requests.get(
         f"https://api.air-sync.com/api/v2/aircraft/{endpoint}/logs", headers=headers
-    )
-    if response.status_code == 200:
-        data_cache[endpoint] = response.json()  # Cache the response
-        return data_cache[endpoint]
-    else:
-        raise HTTPException(
-            description="Failed to fetch data", code=response.status_code
-        )
 
 
 @app.route("/<int:aircraft_id>/logs", methods=["GET"])
 def get_logs(aircraft_id):
-    log_request('Requested logs for aircraft ID: ' + str(aircraft_id))
+    log_request("Requested logs for aircraft ID: " + str(aircraft_id))
     try:
         data = fetch_and_cache_data(aircraft_id)
         return jsonify(data)
@@ -87,41 +71,84 @@ def get_logs(aircraft_id):
 
 @app.route("/<int:aircraft_id>/subscribe", methods=["POST"])
 def subscribe_aircraft(aircraft_id):
-    log_request('Received subscription for aircraft ID: ' + str(aircraft_id))
-    data = request.json
-    confirmation_url = data.get("SubscribeURL")
-    if confirmation_url:
-        # Simulate subscription confirmation by sending a GET request
-        response = requests.get(confirmation_url)
-        if response.status_code == 200:
-            fetch_and_cache_data(str(aircraft_id))  # Refresh logs cache
-            return jsonify({"status": "Subscription confirmed"}), 200
-        else:
-            return jsonify({"error": "Failed to confirm subscription"}), response.status_code
-    return jsonify({"error": "No subscription URL provided"}), 400
+    """Subscribe to notifications for a specific aircraft ID."""
+    data = request.get_json()
+    log_request(
+        {
+            "time": datetime.now().isoformat(),
+            "action": "Received subscription",
+            "aircraft_id": aircraft_id,
+            "data": data,
+        }
+    )
+
+    if "SubscribeURL" in data:
+        confirmation_response = requests.get(data["SubscribeURL"])
+        log_request(
+            {
+                "time": datetime.now().isoformat(),
+                "action": "Subscription confirmation request",
+                "aircraft_id": aircraft_id,
+                "SubscribeURL": data["SubscribeURL"],
+                "response_status": confirmation_response.status_code,
+                "response_body": confirmation_response.text,
+            }
+        )
+        return (
+            jsonify(
+                {
+                    "status": "Subscription confirmed",
+                    "response": confirmation_response.text,
+                }
+            ),
+            confirmation_response.status_code,
+        )
+
+    return jsonify({"error": "SubscribeURL not provided"}), 400
 
 
-@app.route("/debug", methods=["GET"])
-def show_debug():
-    log_request('Accessed debug logs')
-    html = '''
-    <table border="1">
-        <tr>
-            <th>Time</th><th>Endpoint</th><th>Method</th><th>Data</th>
-        </tr>
-        {% for log in logs %}
-        <tr>
-            <td>{{ log.time }}</td><td>{{ log.endpoint }}</td><td>{{ log.method }}</td><td>{{ log.data }}</td>
-        </tr>
-        {% endfor %}
-    </table>
-    '''
-    return render_template_string(html, logs=log_messages)
+@app.route("/debug", methods=["GET", "POST"])
+def debug():
+    """Display or log debug information."""
+    if request.method == "POST":
+        log_request(
+            {
+                "time": datetime.now().isoformat(),
+                "action": "Debug POST",
+                "data": request.get_json(),
+            }
+        )
+        return jsonify({"status": "Debug data logged"}), 200
+    else:
+        log_request(
+            {
+                "time": datetime.now().isoformat(),
+                "action": "Accessed debug logs",
+            }
+        )
+        # Generate HTML table for display
+        html = """
+        <table border="1">
+            <tr>
+                <th>Time</th><th>Action</th><th>Details</th>
+            </tr>
+            {% for log in logs %}
+            <tr>
+                <td>{{ log.time }}</td>
+                <td>{{ log.action }}</td>
+                <td>{{ log.data }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        """
+        return render_template_string(html, logs=log_messages)
 
 
 @app.route("/", methods=["GET"])
 def say_hello():
-    log_request('Accessed root')
+    log_request(
+        {"time": datetime.now().isoformat(), "action": "Accessed root endpoint"}
+    )
     return "Hello, world!"
 
 
