@@ -25,9 +25,8 @@ credentials, project = default(scopes=["https://www.googleapis.com/auth/spreadsh
 client = gspread.authorize(credentials)
 sheet = client.open_by_key(os.getenv('FLIGHT_DATA')).sheet1
 
-# Endpoint to login and get access token
-@app.route('/login', methods=['POST'])
-def login():
+def get_auth_token():
+    """Function to login and retrieve authentication token."""
     url = "https://api.air-sync.com/api/v2/user/login"
     payload = {
         'email': os.getenv('EMAIL'),
@@ -36,22 +35,18 @@ def login():
     }
     response = requests.post(url, data=payload)
     if response.status_code == 200:
-        auth_token = response.json().get('auth_token')
-        return jsonify({"auth_token": auth_token}), 200
+        return response.json().get('auth_token')
     else:
-        return jsonify({"error": "Login failed"}), response.status_code
+        return None
 
-# Endpoint to fetch and save flight logs
 @app.route('/fetch_flights', methods=['GET'])
 def fetch_flights():
-    auth_token = request.headers.get('Authorization')
+    auth_token = get_auth_token()
     if not auth_token:
-        return jsonify({"error": "Missing Authorization header"}), 401
+        return jsonify({"error": "Failed to authenticate"}), 401
 
     url = "https://api.air-sync.com/api/v2/aircraft/"
-    headers = {
-        'Authorization': f'Bearer {auth_token}'
-    }
+    headers = {'Authorization': f'Bearer {auth_token}'}
     response = requests.get(url, headers=headers)
     if response.status_code == 200:
         aircraft = response.json()
