@@ -4,8 +4,13 @@ from google.cloud import secretmanager
 import gspread
 from google.auth import default
 import requests
+from werkzeug.exceptions import HTTPException
+import json
 
 app = Flask(__name__)
+
+# Define a cache dictionary to store data
+data_cache = {}
 
 # Load secrets from Google Secret Manager
 def get_secret(secret_name):
@@ -14,11 +19,6 @@ def get_secret(secret_name):
     secret_path = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
     response = client.access_secret_version(request={"name": secret_path})
     return response.payload.data.decode("UTF-8")
-
-# Set environment variables for secrets
-os.environ['EMAIL'] = get_secret('AirSync_email')
-os.environ['PASSWORD'] = get_secret('AirSync_password')
-os.environ['FLIGHT_DATA'] = get_secret('AirSync_flight_data')
 
 # Google Sheets authentication
 credentials, project = default(scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
@@ -39,23 +39,31 @@ def get_auth_token():
     else:
         return None
 
-@app.route('/fetch_flights', methods=['GET'])
-def fetch_flights():
+def fetch_and_cache_data(endpoint):
+    """Fetch data from an endpoint and cache it."""
+    if endpoint in data_cache:
+        return data_cache[endpoint]  # Serve from cache if available
+
     auth_token = get_auth_token()
     if not auth_token:
-        return jsonify({"error": "Failed to authenticate"}), 401
+        raise HTTPException(description="Failed to authenticate", code=401)
 
-    url = "https://api.air-sync.com/api/v2/aircraft/"
     headers = {'Authorization': f'Bearer {auth_token}'}
-    response = requests.get(url, headers=headers)
+    response = requests.get(f"https://api.air-sync.com/api/v2/aircraft/{endpoint}/logs", headers=headers)
     if response.status_code == 200:
-        aircraft = response.json()
-        # Save aircraft data to Google Sheets
-        for ac in aircraft:
-            sheet.append_row([ac['id'], ac['tail_number'], ac['flight_time']])
-        return jsonify({"message": "Data saved to Google Sheets"}), 200
+        data_cache[endpoint] = response.json()  # Cache the response
+        return data_cache[endpoint]
     else:
-        return jsonify({"error": "Failed to fetch flights"}), response.status_code
+        raise HTTPException(description="Failed to fetch data", code=response.status_code)
+
+@app.route('/<int:aircraft_id>/logs', methods=['GET'])
+def get_logs(aircraft_id):
+    """Endpoint to get aircraft logs."""
+    try:
+        data = fetch_and_cache_data(aircraft_id)
+        return jsonify(data)
+    except HTTPException as e:
+        return jsonify({"error": e.description}), e.code
 
 @app.route('/', methods=['GET'])
 def say_hello():
